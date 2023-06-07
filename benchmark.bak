@@ -1,0 +1,141 @@
+import torch
+from torch.cuda import Event
+from single import ModelArgs, Transformer, t
+
+
+def init_model():
+    args = ModelArgs()
+    torch.set_default_tensor_type(torch.cuda.HalfTensor)
+    model = Transformer(args)
+    t(
+        f"create model \t {next(iter(model.parameters())).device} {next(iter(model.parameters())).dtype}"
+    )
+    # torch.set_default_tensor_type(torch.FloatTensor)
+    state_dict = torch.load("full_fused.pth", map_location="cuda")
+    model.load_state_dict(state_dict, strict=False)
+    t(
+        f"load model \t {next(iter(model.parameters())).device} {next(iter(model.parameters())).dtype}"
+    )
+
+    model = model.eval()
+
+    return model
+
+
+def benchmark_generator(model, prompt_len, total_len):
+    """
+    Benchmark the model on a sequence of length seq_len
+
+    Args:
+    """
+
+    tokens = torch.arange(total_len).repeat(1, 1)
+
+    events = []
+    e = Event(enable_timing=True)
+    e.record()
+    events.append(e)
+
+    prev_pos = 0
+    for cur_pos in range(prompt_len, total_len):
+        logits = model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+        next_token = torch.argmax(logits, dim=-1)
+        next_token = next_token.reshape(-1)
+        tokens[:, cur_pos] = next_token
+        prev_pos = cur_pos
+        e = Event(enable_timing=True)
+        e.record()
+        events.append(e)
+
+    return tokens, events
+
+
+def init_ds_model(ds=False):
+    import torch
+
+    torch.set_default_tensor_type(torch.cuda.HalfTensor)
+    from transformers import AutoModelForCausalLM
+
+    model_id = "decapoda-research/llama-7b-hf"
+    t()
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, torch_dtype=torch.float16
+    ).cuda()
+    t("load model")
+    # t()
+    # # model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16, device_map={'lm_head':0, "model":0})
+    # t('load model')
+    # model.eval()
+    if not ds:
+        return model
+
+    import deepspeed
+
+    # init deepspeed inference engine
+    ds_model = deepspeed.init_inference(
+        model=model,  # Transformers models
+        mp_size=1,  # Number of GPU
+        dtype=torch.float16,  # dtype of the weights (fp16)
+        replace_method="auto",  # Lets DS autmatically identify the layer to replace
+        replace_with_kernel_inject=True,  # replace the model with the kernel injector
+        max_out_tokens=2048
+    )
+    print(f"model is loaded on device {ds_model.module.device}")
+    return ds_model
+    # from deepspeed.ops.transformer.inference import DeepSpeedTransformerInference
+    # # assert isinstance(ds_model.module.transformer.h[0], DeepSpeedTransformerInference) == True, "Model not sucessfully initalized"
+
+    # # Test model
+    # example = "My name is Philipp and I"
+    # input_ids = tokenizer(example,return_tensors="pt").input_ids.to(model.device)
+    # logits = ds_model.generate(input_ids, do_sample=True, max_length=100)
+    # tokenizer.decode(logits[0].tolist())
+
+    # payload = (
+    #     "Hello my name is Philipp. I am getting in touch with you because i didn't get a response from you. What do I need to do to get my new card which I have requested 2 weeks ago? Please help me and answer this email in the next 7 days. Best regards and have a nice weekend but it"
+    #     * 2
+    # )
+    # print(f'Payload sequence length is: {len(tokenizer(payload)["input_ids"])}')
+
+    # # generation arguments
+    # generation_args = dict(do_sample=False, num_beams=1, min_length=128, max_new_tokens=128)
+    # ds_results = measure_latency(ds_model, tokenizer, payload, generation_args, ds_model.module.device)
+
+    # print(f"DeepSpeed model: {ds_results[0]}")
+
+
+def benchmark(model, prompt_len, total_len):
+    tokens = torch.arange(prompt_len).repeat(1, 1)
+
+    start = Event(enable_timing=True)
+    start.record()
+    res = model.generate(tokens, do_sample=False, max_length=total_len)
+    end = Event(enable_timing=True)
+    end.record()
+    torch.cuda.synchronize()
+    el = start.elapsed_time(end)
+    return res, el
+
+
+if __name__ == "__main__":
+    t()
+    model = init_model()
+    tokens, events = benchmark_generator(model, 512, 2048)
+    print(tokens.cpu().numpy().tolist()[0][::64])
+    t("total time: ")
+    ets =  []
+    for i in range(len(events) - 1):
+        ets.append(events[i ].elapsed_time(events[i+ 1]))
+
+    print(ets[0], sum(ets[1:])/len(ets[1:]))
+    print(f"Time by Events: {sum(ets)} ms")
+    model = init_ds_model(False)
+    tok, el = benchmark(model, 512, 2048)
+    print(tok.cpu().numpy().tolist()[0][::64])
+    print(tok.shape)
+    print(el)
+    model = init_ds_model(True)
+    tok, el = benchmark(model, 512, 2048)
+    print(tok.cpu().numpy().tolist()[0][::64])
+    print(tok.shape)
+    print(el)
