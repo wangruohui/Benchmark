@@ -8,7 +8,6 @@ import torch
 
 from timing import TimingStreamer, _get_times
 from timing import timehere as t
-from accelerate import init_empty_weights
 
 
 SUPPPORTED_MODELS = {}
@@ -92,29 +91,32 @@ def init_hf_baseline(name_or_path, **kwawrgs):
 
 
 @_register
-def init_deepspeed(name_or_path, mp_size, **kwawrgs):
+def init_deepspeed(name_or_path, mp_size, max_seq_len, **kwawrgs):
     import deepspeed
     from transformers import AutoModelForCausalLM
 
-    torch.set_default_tensor_type(torch.cuda.HalfTensor)
+    # torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
     local_rank = int(os.getenv("LOCAL_RANK", "0"))
     torch.set_default_device(local_rank)
     t()
+    # from accelerate import init_empty_weights
     # with init_empty_weights():
-    with deepspeed.OnDevice(dtype=torch.float16, device="meta"):
-        model = AutoModelForCausalLM.from_pretrained(
-            name_or_path, torch_dtype=torch.float16
-        )
+    # with deepspeed.OnDevice(dtype=torch.float16, device="meta"):
+    model = AutoModelForCausalLM.from_pretrained(
+        name_or_path, torch_dtype=torch.float16
+    )
     t("load model")
 
     ds_model = deepspeed.init_inference(
         model=model,  # Transformers models
-        mp_size=mp_size,  # Number of GPU
+        # mp_size=mp_size,  # Number of GPU
+        tensor_parallel={"tp_size": mp_size},
         dtype=torch.float16,  # dtype of the weights (fp16)
         replace_method="auto",  # Lets DS autmatically identify the layer to replace
         replace_with_kernel_inject=True,  # replace the model with the kernel injector
-        max_out_tokens=2049,
+        max_out_tokens=max_seq_len,
+        # checkpoint = name_or_path + "/checkpoints.json",
     )
     print(f"model is loaded on device {ds_model.module.device}")
 

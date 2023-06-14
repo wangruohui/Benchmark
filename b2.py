@@ -1,10 +1,12 @@
 import argparse
+import csv
+import os
 import sys
 from collections import namedtuple
 
 import torch
 import yaml
-import csv
+
 from mystat import stat
 from wrappers import SUPPPORTED_MODELS
 
@@ -61,6 +63,7 @@ class Logger:
             "model",
             "batch_size",
             "prompt_len",
+            "gen_len",
             "total_len",
             "first_time",
             "inc_time",
@@ -76,8 +79,11 @@ class Logger:
         if self.on_master:
             csv.writer(open(self.file, "a")).writerow(line)
 
+    @property
     def on_master(self):
-        return not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
+        # return not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        return local_rank == 0
 
 
 def main():
@@ -95,28 +101,39 @@ def main():
     cprint(f"Max seq len: {max_seq_len}")
 
     logger = Logger()
+    print(logger.on_master)
+
     for model, kwargs in config["models"].items():
         kwargs["max_seq_len"] = max_seq_len
         kwargs["max_batch_size"] = max_batch_size
+
         cprint(f"Initializing {model} with {kwargs}")
         init_fun = SUPPPORTED_MODELS[model]
         benckmarker = init_fun(**kwargs)
-        cprint(f"Warm up {model}, with specs {Spec(max_batch_size, 1, None, max_seq_len)}")
+
+        cprint(
+            f"Warm up {model}, with specs {Spec(max_batch_size, 1, None, max_seq_len)}"
+        )
         benckmarker.benchmark_and_time(max_batch_size, 1, max_seq_len)
 
         for c in specs:
             cprint(f"Benchmarking {model}, with specs {c}")
-            bs, prompt_len, _, total_len = c
+            bs, prompt_len, gen_len, total_len = c
+
             torch.cuda.synchronize()
             times = benckmarker.benchmark_and_time(bs, prompt_len, total_len)
-            print(times)
             torch.cuda.synchronize()
+            print("\t".join(f"{t:4.1f}" for t in times))
+
             first, inc, inc2, error = stat(times)
             cprint(
                 f"First/ms: {first:5.1f}, Inc/ms: {inc:5.1f}, "
-                f"Inc2/ms: {inc2:5.1f}, IncStd/ms: {error:5.1f}"
+                f"Inc2/ms: {inc2:5.3f}, IncStd/ms: {error:5.3f}"
             )
-            logger.log([model, bs, prompt_len, total_len, first, inc, inc2, error])
+
+            logger.log(
+                [model, bs, prompt_len, gen_len, total_len, first, inc, inc2, error]
+            )
 
 
 if __name__ == "__main__":

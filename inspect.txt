@@ -1,0 +1,73 @@
+import deepspeed.model_implementations.transformers.ds_gpt.DeepSpeedGPTInference
+
+attn -> mlp
+
+import deepspeed.ops.transformer.inference.ds_attention.DeepSpeedSelfAttention
+
+1. QKVGemmOp: self.qkv_gemm_func -> rms_qkv_gemm_fp16
+
+  fallback:
+        if os.environ.get('DS_KI_FALLBACK') == 'True' and not transpose:
+            inp_norm = F.layer_norm(input, (input.shape[2], ), gamma, beta, eps)
+            tmp = torch.matmul(inp_norm, weight)
+            if add_bias:
+                tmp += bias
+            output = [tmp, inp_norm]
+            return output
+        else:
+            raise NotImplementedError
+
+  2. DeepSpeedSelfAttention -> compute_attention -> score_context_func
+      -> SoftmaxContextOp -> softmax_context_fp16
+        (This op do rotary embedding + attention)
+
+  3. DeepSpeedSelfAttention -> vector_matmul_func
+      -> LinearOp -> linear_fp16 -> fallback就是matmul
+
+    可这里并没有做加法，返回了
+
+DeepSpeedMLP -> mlp_gemm_func -> MLPGemmOp -> rms_mlp_gemm_fp16
+  fallback: 计算residual -> norm -> matmul -> add_bias -> gelu -> matmul -> (output, residual_add)
+  这里：bias=
+  -> vector_matmul_func -> LinearOp -> linear_fp16
+  -> fused_gemm_gelu -> gelu_gemm_fp16
+  -> residual_add_func -> residual_add_fp16
+
+  1. DeepSpeedMLP -> mlp_gemm_func -> rms_mlp_gemm_fp16
+    -> vector_matmul_func -> LinearOp -> linear_fp16
+    -> fallback就是matmul
+
+  2. DeepSpeedMLP -> fused_gemm_gelu -> gelu_gemm_fp16
+    -> fallback就是gelu
+
+  3. DeepSpeedMLP -> residual_add_func -> residual_add_fp16
+    -> fallback就是add
+
+"""
+DeepSpeedGPTInference(
+  (attention): DeepSpeedSelfAttention(
+    (qkv_func): QKVGemmOp()
+    (score_context_func): SoftmaxContextOp()
+    (linear_func): LinearOp()
+    (vector_matmul_func): VectorMatMulOp()
+  )
+  (mlp): DeepSpeedMLP(
+    (mlp_gemm_func): MLPGemmOp()
+    (vector_matmul_func): VectorMatMulOp()
+    (fused_gemm_gelu): GELUGemmOp()
+    (residual_add_func): ResidualAddOp()
+  )
+)
+
+ <class 'deepspeed.model_implementations.transformers.ds_gpt.DeepSpeedGPTInference'>
+attention <class 'deepspeed.ops.transformer.inference.ds_attention.DeepSpeedSelfAttention'>
+attention.qkv_func <class 'deepspeed.ops.transformer.inference.op_binding.qkv_gemm.QKVGemmOp'>
+attention.score_context_func <class 'deepspeed.ops.transformer.inference.op_binding.softmax_context.SoftmaxContextOp'>
+attention.linear_func <class 'deepspeed.ops.transformer.inference.op_binding.linear.LinearOp'>
+attention.vector_matmul_func <class 'deepspeed.ops.transformer.inference.op_binding.vector_matmul.VectorMatMulOp'>
+mlp <class 'deepspeed.ops.transformer.inference.ds_mlp.DeepSpeedMLP'>
+mlp.mlp_gemm_func <class 'deepspeed.ops.transformer.inference.op_binding.mlp_gemm.MLPGemmOp'>
+mlp.vector_matmul_func <class 'deepspeed.ops.transformer.inference.op_binding.vector_matmul.VectorMatMulOp'>
+mlp.fused_gemm_gelu <class 'deepspeed.ops.transformer.inference.op_binding.gelu_gemm.GELUGemmOp'>
+mlp.residual_add_func <class 'deepspeed.ops.transformer.inference.op_binding.residual_add.ResidualAddOp'>
+"""

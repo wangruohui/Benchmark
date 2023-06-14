@@ -28,7 +28,7 @@ name_or_path = "decapoda-research/llama-7b-hf"
 # )
 # print(f"model is loaded on device {ds_model.module.device}")
 
-benckmarker = init_deepspeed("decapoda-research/llama-7b-hf")
+benckmarker = init_deepspeed("decapoda-research/llama-7b-hf", mp_size=1)
 ds_model = benckmarker.model
 
 for _ in range(3):
