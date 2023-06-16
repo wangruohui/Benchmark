@@ -2,6 +2,21 @@
 
 Speed benchmark tool for LLMs, supporting LLaMA and HuggingFace model inferfaces.
 
+## To Use
+
+```
+# Single GPU
+python b2.py config.yaml
+
+# For Original LLaMA
+torchrun --nproc-per-node 2 b2.py config.yaml
+
+# For Deepspeed
+deepseep --num_gpus=1 b2.py config.yaml
+# OR
+CUDA_VISIBLE_DEVICES=0,1 deepseep b2.py config.yaml
+```
+
 ## References
 
 ## APIs
