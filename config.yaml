@@ -1,15 +1,14 @@
 
 specs: # bs, prompt_len, gen_len, total_len
   # bss: [1, 2, 4, 8, 16, 32]
-  bss: [16, 4, 1]
+  bss: [16]
   tokens:
-  - [1, null, 64]
-  # - [1, null, 8192]
   - [1, null, 2048]
-  - [1024, 1, null]
-  - [512, 1, null]
-  - [64, 1, null]
+  # - [1, null, 8192]
+  # - [1, null, 2048]
+  # - [1024, 1, null]
   # - [512, 1, null]
+  # - [64, 1, null]
 
 
 models:
@@ -19,13 +18,13 @@ models:
   # llama_baseline:
   #   name_or_path: "/nvme/wangruohui/Downloads/LLaMA/30B"
   #   launcher:
-  # deepspeed:
-  #   name_or_path: "decapoda-research/llama-7b-hf"
-  #   mp_size: 1
+  deepspeed:
+    name_or_path: "decapoda-research/llama-7b-hf"
+    mp_size: 1
   # deepspeed:
   #   name_or_path: "decapoda-research/llama-13b-hf"
   #   mp_size: 2
-  deepspeed:
-    name_or_path: "decapoda-research/llama-30b-hf"
-    # name_or_path: "/nvme/wangruohui/llama-30b-hf"
-    mp_size: 4
+  # deepspeed:
+  #   name_or_path: "decapoda-research/llama-30b-hf"
+  #   # name_or_path: "/nvme/wangruohui/llama-30b-hf"
+  #   mp_size: 4

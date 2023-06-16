@@ -107,7 +107,7 @@ def init_deepspeed(name_or_path, mp_size, max_seq_len, **kwawrgs):
         name_or_path, torch_dtype=torch.float16
     )
     t("load model")
-
+    print(f"max_seq_len = {max_seq_len}")
     ds_model = deepspeed.init_inference(
         model=model,  # Transformers models
         # mp_size=mp_size,  # Number of GPU
