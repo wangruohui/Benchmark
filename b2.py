@@ -69,6 +69,7 @@ class Logger:
             "inc_time",
             "inc_time2",
             "error",
+            "total time",
         ],
     ):
         if self.on_master:
@@ -128,11 +129,12 @@ def main():
             first, inc, inc2, error = stat(times)
             cprint(
                 f"First/ms: {first:5.1f}, Inc/ms: {inc:5.1f}, "
-                f"Inc2/ms: {inc2:5.3f}, IncStd/ms: {error:5.3f}"
+                f"Inc2/ms: {inc2:5.3f}, IncStd/ms: {error:5.3f}, "
+                f"Total Tile/ms: {sum(times):5.3f}"
             )
 
             logger.log(
-                [model, bs, prompt_len, gen_len, total_len, first, inc, inc2, error]
+                [model, bs, prompt_len, gen_len, total_len, first, inc, inc2, error, sum(times)]
             )
 
 
