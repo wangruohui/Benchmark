@@ -130,7 +130,7 @@ def main():
             cprint(
                 f"First/ms: {first:5.1f}, Inc/ms: {inc:5.1f}, "
                 f"Inc2/ms: {inc2:5.3f}, IncStd/ms: {error:5.3f}, "
-                f"Total Tile/ms: {sum(times):5.3f}"
+                f"Total Time/ms: {sum(times):5.3f}"
             )
 
             logger.log(

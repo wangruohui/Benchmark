@@ -8,7 +8,7 @@ import torch
 
 from timing import TimingStreamer, _get_times
 from timing import timehere as t
-
+from utils import LoadWoInit
 
 SUPPPORTED_MODELS = {}
 
@@ -34,9 +34,17 @@ def _register(init_func):
 class HuggingFaceModelBenchmarker:
     def __init__(self, model):
         self.model = model
+        self.device = (
+            self.model.module.device
+            if "InferenceEngine" in self.model.__class__.__name__
+            else self.model.device
+        )
 
     def benchmark_and_time(self, bs, prompt_len, total_len):
-        fake_inputs = torch.arange(prompt_len).repeat(bs, 1)
+        # input_id = 0 cause some cuda error
+        fake_inputs = torch.arange(prompt_len, device=self.device).repeat(bs, 1) + 66
+        fake_inputs = fake_inputs.to(self.device)
+
         ts = TimingStreamer()
         fake_outputs = self.model.generate(
             fake_inputs, max_length=total_len, streamer=ts
@@ -91,32 +99,38 @@ def init_hf_baseline(name_or_path, **kwawrgs):
 
 
 @_register
-def init_deepspeed(name_or_path, mp_size, max_seq_len, **kwawrgs):
+def init_deepspeed(name_or_path, mp_size, max_seq_len, init_on_gpu=True, **kwawrgs):
+    tp_size = mp_size
     import deepspeed
     from transformers import AutoModelForCausalLM
 
-    # torch.set_default_tensor_type(torch.cuda.HalfTensor)
+    if init_on_gpu:
+        # torch.set_default_tensor_type(torch.cuda.HalfTensor)
+        local_rank = int(os.getenv("LOCAL_RANK", "0"))
+        torch.set_default_device(local_rank)
 
-    local_rank = int(os.getenv("LOCAL_RANK", "0"))
-    torch.set_default_device(local_rank)
-    t()
     # from accelerate import init_empty_weights
-    # with init_empty_weights():
+    #     with init_empty_weights():
     # with deepspeed.OnDevice(dtype=torch.float16, device="meta"):
-    model = AutoModelForCausalLM.from_pretrained(
-        name_or_path, torch_dtype=torch.float16
-    )
+    print("Loading")
+    with LoadWoInit():
+        model = AutoModelForCausalLM.from_pretrained(
+            name_or_path, torch_dtype=torch.float16
+        )
+    # model = AutoModelForCausalLM.from_pretrained(
+    #     name_or_path, torch_dtype=torch.float16
+    # )
     t("load model")
     print(f"max_seq_len = {max_seq_len}")
+
+    # tp_config= DeepSpeedTPConfig
     ds_model = deepspeed.init_inference(
         model=model,  # Transformers models
-        # mp_size=mp_size,  # Number of GPU
-        tensor_parallel={"tp_size": mp_size},
+        tensor_parallel={"tp_size": tp_size},
         dtype=torch.float16,  # dtype of the weights (fp16)
         replace_method="auto",  # Lets DS autmatically identify the layer to replace
         replace_with_kernel_inject=True,  # replace the model with the kernel injector
         max_out_tokens=max_seq_len,
-        # checkpoint = name_or_path + "/checkpoints.json",
     )
     print(f"model is loaded on device {ds_model.module.device}")
 
@@ -126,13 +140,14 @@ def init_deepspeed(name_or_path, mp_size, max_seq_len, **kwawrgs):
 def _setup_model_parallel():
     from fairscale.nn.model_parallel.initialize import initialize_model_parallel
 
-    local_rank = int(os.environ.get("LOCAL_RANK", -1))
-    world_size = int(os.environ.get("WORLD_SIZE", -1))
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
 
     if not torch.distributed.is_initialized():
         torch.distributed.init_process_group("nccl")
         initialize_model_parallel(world_size)
-    torch.cuda.set_device(local_rank)
+    print(f"local_rank = {local_rank}")
+    torch.cuda.set_device(int(local_rank))
 
     # seed must be the same in all processes
     torch.manual_seed(1)
