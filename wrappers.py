@@ -10,6 +10,8 @@ from timing import TimingStreamer, _get_times
 from timing import timehere as t
 from utils import LoadWoInit
 
+from transformers import GenerationConfig
+
 SUPPPORTED_MODELS = {}
 
 
@@ -47,8 +49,11 @@ class HuggingFaceModelBenchmarker:
 
         ts = TimingStreamer()
         fake_outputs = self.model.generate(
-            fake_inputs, max_length=total_len, streamer=ts
+            fake_inputs,
+            GenerationConfig(max_length=total_len, do_sample=False, eos_token_id=[-1]),
+            streamer=ts,
         )
+        print(fake_outputs.size())
 
         return ts.raw_times()
 
@@ -91,7 +96,7 @@ def init_hf_baseline(name_or_path, **kwawrgs):
     t()
     # model_id = "decapoda-research/llama-7b-hf"
     model = AutoModelForCausalLM.from_pretrained(
-        name_or_path, torch_dtype=torch.float16
+        name_or_path, torch_dtype=torch.float16, trust_remote_code=True
     )
     t("load model")
 
