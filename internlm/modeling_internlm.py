@@ -198,10 +198,6 @@ class InternLMAttention(nn.Module):
         key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
 
-        print("QKV output")
-        print(query_states.shape, key_states.shape, value_states.shape)
-        print(query_states.mean(), key_states.mean(), value_states.mean())
-
         kv_seq_len = key_states.shape[-2]
         if past_key_value is not None:
             kv_seq_len += past_key_value[0].shape[-2]
@@ -292,8 +288,6 @@ class InternLMDecoderLayer(nn.Module):
         residual = hidden_states
 
         hidden_states = self.input_layernorm(hidden_states)
-        print("imput norm")
-        print(hidden_states)
 
         # Self Attention
         hidden_states, self_attn_weights, present_key_value = self.self_attn(
@@ -304,8 +298,6 @@ class InternLMDecoderLayer(nn.Module):
             output_attentions=output_attentions,
             use_cache=use_cache,
         )
-        print("hidden_states after attention", hidden_states)
-        print("present_key_value", present_key_value)
         hidden_states = residual + hidden_states
 
         # Fully Connected
@@ -561,7 +553,6 @@ class InternLMModel(InternLMPreTrainedModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = () if use_cache else None
 
-        print("hidden_states", hidden_states)
         for idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -585,8 +576,6 @@ class InternLMModel(InternLMPreTrainedModel):
                     None,
                 )
             else:
-                if idx == 0:
-                    print("hidden_states before decode layer 0", hidden_states)
                 layer_outputs = decoder_layer(
                     hidden_states,
                     attention_mask=attention_mask,
@@ -775,7 +764,7 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
         for layer_past in past_key_values:
             reordered_past += (tuple(past_state.index_select(0, beam_idx) for past_state in layer_past),)
         return reordered_past
-
+    
     def build_inputs(self, tokenizer, query: str, history: List[Tuple[str, str]] = []):
         prompt = ""
         for record in history:
@@ -784,40 +773,38 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
             prompt += "<s>"
         prompt += f"""<|User|>:{query}<eoh>\n<|Bot|>:"""
         return tokenizer([prompt], return_tensors="pt")
-
+    
     @torch.no_grad()
-    def chat(self,
-             tokenizer,
+    def chat(self, 
+             tokenizer, 
              query: str,
-             history: List[Tuple[str, str]] = [],
+             history: List[Tuple[str, str]] = [], 
              streamer: Optional[BaseStreamer] = None,
              max_new_tokens: int = 1024,
              do_sample: bool = True,
              temperature: float = 0.8,
              top_p: float = 0.8,
-             eos_token_id=(2, 103028),
              **kwargs):
         inputs = self.build_inputs(tokenizer, query, history)
         inputs = {k: v.to(self.device) for k, v in inputs.items() if torch.is_tensor(v)}
-        outputs = self.generate(**inputs,
-                                streamer=streamer,
-                                max_new_tokens=max_new_tokens,
-                                do_sample=do_sample,
-                                temperature=temperature,
-                                top_p=top_p,
-                                eos_token_id=list(eos_token_id),
+        outputs = self.generate(**inputs, 
+                                streamer=streamer, 
+                                max_new_tokens=max_new_tokens, 
+                                do_sample=do_sample, 
+                                temperature=temperature, 
+                                top_p=top_p, 
                                 **kwargs)
         outputs = outputs[0].cpu().tolist()[len(inputs["input_ids"][0]):]
         response = tokenizer.decode(outputs, skip_special_tokens=True)
         response = response.split("<eoa>")[0]
         history = history + [(query, response)]
         return response, history
-
+    
     @torch.no_grad()
-    def stream_chat(self,
+    def stream_chat(self, 
                     tokenizer,
                     query: str,
-                    history: List[Tuple[str, str]] = [],
+                    history: List[Tuple[str, str]] = [], 
                     max_new_tokens: int = 1024,
                     do_sample: bool = True,
                     temperature: float = 0.8,
@@ -827,7 +814,7 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
             def __init__(self, tokenizer) -> None:
                 super().__init__()
                 self.tokenizer = tokenizer
-
+                
             def put(self, value):
                 if len(value.shape) > 1 and value.shape[0] > 1:
                     raise ValueError("ChatStreamer only supports batch size 1")
@@ -836,22 +823,22 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
                 token = self.tokenizer.decode([value[-1]], skip_special_tokens=True)
                 if token.strip() != "<eoa>":
                     print(token, end="")
-
+                
             def end(self):
                 print("")
-
+            
         return self.chat(
             tokenizer=tokenizer,
             query=query,
             streamer=ChatStreamer(tokenizer=tokenizer),
-            history=history,
+            history=history, 
             max_new_tokens=max_new_tokens,
             do_sample=do_sample,
             temperature=temperature,
             top_p=top_p,
             **kwargs
         )
-
+                
 
 @add_start_docstrings(
     """
