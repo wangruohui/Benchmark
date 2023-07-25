@@ -50,7 +50,11 @@ class HuggingFaceModelBenchmarker:
         ts = TimingStreamer()
         fake_outputs = self.model.generate(
             fake_inputs,
-            GenerationConfig(max_length=total_len, do_sample=False, eos_token_id=[-1]),
+            GenerationConfig(
+                max_new_tokens=total_len - prompt_len,
+                do_sample=False,
+                eos_token_id=[-1],
+            ),
             streamer=ts,
         )
         print(fake_outputs.size())
@@ -87,6 +91,35 @@ class LLaMAModelBenchmarker:
 
         return _get_times(events)
 
+
+class LLaMA2ModelBenchmarker:
+    def __init__(self, model):
+        self.model = model
+
+    def benchmark_and_time(self, bs, prompt_len, total_len):
+        fake_tokens = torch.arange(total_len).repeat(bs, 1)
+
+        torch.cuda.synchronize()
+
+        events = []
+        e = torch.cuda.Event(enable_timing=True)
+        e.record()
+        events.append(e)
+
+        prev_pos = 0
+        for cur_pos in range(prompt_len, total_len):
+            logits = self.model.forward(fake_tokens[:, prev_pos:cur_pos], prev_pos)
+            next_token = torch.argmax(logits[:, -1], dim=-1)
+            next_token = next_token.reshape(-1)
+            fake_tokens[:, cur_pos] = next_token
+            prev_pos = cur_pos
+            e = torch.cuda.Event(enable_timing=True)
+            e.record()
+            events.append(e)
+
+        torch.cuda.synchronize()
+
+        return _get_times(events)
 
 @_register
 def init_hf_baseline(name_or_path, **kwawrgs):
@@ -138,6 +171,8 @@ def init_deepspeed(name_or_path, mp_size, max_seq_len, init_on_gpu=True, **kwawr
         max_out_tokens=max_seq_len,
     )
     print(f"model is loaded on device {ds_model.module.device}")
+
+    print(ds_model)
 
     return HuggingFaceModelBenchmarker(ds_model)
 
@@ -212,3 +247,23 @@ def init_llama_baseline(
     )
 
     return LLaMAModelBenchmarker(model)
+
+@_register
+def init_llama2_baseline(
+    name_or_path: str, max_seq_len: int = 2048, max_batch_size: int = 32, **kwawrgs
+):
+    from llama import Llama
+
+    TARGET_FOLDER = "llama2/facebook"
+    ckpt_dir = TARGET_FOLDER + "/llama-2-7b"
+    tokenizer_path = TARGET_FOLDER + "/tokenizer.model"
+
+    generator = Llama.build(
+        ckpt_dir=ckpt_dir,
+        tokenizer_path=tokenizer_path,
+        max_seq_len=max_seq_len,
+        max_batch_size=max_batch_size,
+    )
+
+
+    return LLaMA2ModelBenchmarker(generator.model)

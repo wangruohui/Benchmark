@@ -13,7 +13,7 @@ from wrappers import SUPPPORTED_MODELS
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("config", type=str)
+    parser.add_argument("config", default="config.yaml", type=str)
     parser.add_argument("--local_rank", type=str, required=False, default=None)
     return parser.parse_args()
 
@@ -70,6 +70,8 @@ class Logger:
             "inc_time2",
             "error",
             "total time",
+            "throughput(total)",
+            "throughput(gen)",
         ],
     ):
         if self.on_master:
@@ -112,10 +114,10 @@ def main():
         init_fun = SUPPPORTED_MODELS[model]
         benckmarker = init_fun(**kwargs)
 
-        cprint(
-            f"Warm up {model}, with specs {Spec(max_batch_size, 1, None, max_seq_len)}"
-        )
-        benckmarker.benchmark_and_time(max_batch_size, 1, max_seq_len)
+        # cprint(
+        #     f"Warm up {model}, with specs {Spec(max_batch_size, 1, None, max_seq_len)}"
+        # )
+        # benckmarker.benchmark_and_time(max_batch_size, 1, max_seq_len)
 
         for c in specs:
             cprint(f"Benchmarking {model}, with specs {c}")
@@ -127,15 +129,20 @@ def main():
             print("\t".join(f"{t:4.1f}" for t in times))
 
             first, inc, inc2, error = stat(times)
+            tt = bs * total_len * 1000 / sum(times)
+            tg = bs * gen_len * 1000 / sum(times)
             cprint(
                 f"First/ms: {first:5.1f}, Inc/ms: {inc:5.1f}, "
                 f"Inc2/ms: {inc2:5.3f}, IncStd/ms: {error:5.3f}, "
-                f"Total Time/ms: {sum(times):5.3f}"
+                f"Total Time/ms: {sum(times):5.3f}, "
+                f"Throughput Total: {tt:5.3f}, "
+                f"Throughput Gen: {tg:5.3f}"
             )
 
-            logger.log(
-                [model, bs, prompt_len, gen_len, total_len, first, inc, inc2, error, sum(times)]
-            )
+            # fmt: off
+            logger.log([model, bs, prompt_len, gen_len, total_len,
+                        first, inc, inc2, error, sum(times), tt, tg])
+            # fmt: on
 
 
 if __name__ == "__main__":

@@ -7,11 +7,14 @@ from utils import timehere as t
 import os
 
 LOCAL_RANK = int(os.environ.get("LOCAL_RANK", 0))
+
+
 def init_model():
     t()
     # model_id = "/nvme/wangruohui/llama-65b-hf"
-    model_id = "/nvme/wangruohui/llama-7b-hf"
+    # model_id = "/nvme/wangruohui/llama-7b-hf"
     # model_id = "/share_140/InternLM/7B/0703/hf"
+    model_id = "llama2/huggingface/llama-2-7b"
     model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     t("load model")
@@ -20,10 +23,10 @@ def init_model():
     print(model)
     ds_model = deepspeed.init_inference(
         model=model,  # Transformers models
-        mp_size=2,  # Number of GPU
+        mp_size=1,  # Number of GPU
         dtype=torch.float16,  # dtype of the weights (fp16)
         replace_with_kernel_inject=True,  # replace the model with the kernel injector
-        max_out_tokens=512,
+        max_out_tokens=4096,
     )
     print(f"model is loaded on device {ds_model.module.device}")
 

@@ -1,30 +1,41 @@
-
 specs: # bs, prompt_len, gen_len, total_len
-  # bss: [1, 2, 4, 8, 16, 32]
-  bss: [16]
+  bss: [30]
   tokens:
-  - [1, null, 2048]
-  # - [1, null, 8192]
-  # - [1, null, 2048]
-  # - [1024, 1, null]
-  # - [512, 1, null]
-  # - [64, 1, null]
-
+    # - [1, 1, null]
+    # - [1, 2048, null]
+    # - [128, 512, null]
+    # - [512, 512, null]
+    # - [1024, 1024, null]
+    # - [1024, 2048, null]
+    - [2048, 2048, null]
 
 models:
   # hf_baseline:
-  #   name_or_path: "decapoda-research/llama-7b-hf"
-  #   launcher:
+  # name_or_path: "/nvme/wangruohui/llama-7b-hf"
+  # name_or_path: "decapoda-research/llama-7b-hf"
   # llama_baseline:
-  #   name_or_path: "/nvme/wangruohui/Downloads/LLaMA/30B"
-  #   launcher:
-  deepspeed:
-    name_or_path: "decapoda-research/llama-7b-hf"
-    mp_size: 1
+  # name_or_path: "/nvme/wangruohui/Downloads/LLaMA/7B"
   # deepspeed:
-  #   name_or_path: "decapoda-research/llama-13b-hf"
-  #   mp_size: 2
+  #   # name_or_path: "decapoda-research/llama-7b-hf"
+  #   name_or_path: "/share_140/InternLM/7B/0703/hf"
+  #   mp_size: 1
   # deepspeed:
-  #   name_or_path: "decapoda-research/llama-30b-hf"
-  #   # name_or_path: "/nvme/wangruohui/llama-30b-hf"
+  #   name_or_path: "/nvme/wangruohui/llama-30b-hf"
   #   mp_size: 4
+  #   init_on_gpu: false
+  # deepspeed:
+  #   # name_or_path: "decapoda-research/llama-30b-hf"
+  #   name_or_path: "/nvme/wangruohui/llama-65b-hf"
+  #   mp_size: 8
+  #   init_on_gpu: false
+  #### LLAMA 2
+  # hf_baseline:
+  #   name_or_path: "llama2/huggingface/llama-2-7b"
+  #   mp_size: 1
+  deepspeed:
+    name_or_path: "llama2/huggingface/llama-2-7b"
+    mp_size: 1
+    max_seq_len: 4096
+  # llama2_baseline:
+  #   name_or_path: "llama2/facebook/llama-2-7b"
+  #   mp_size: 1
