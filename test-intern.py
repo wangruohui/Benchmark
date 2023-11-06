@@ -1,7 +1,7 @@
 import os
 from contextlib import nullcontext
 
-import deepspeed
+# import deepspeed
 import torch
 from torch.profiler import ProfilerActivity, profile, record_function
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
@@ -9,7 +9,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from mystat import stat
 from timing import TimingStreamer, timehere
 from wrappers import init_deepspeed
-
 
 default_device = 0
 local_rank = int(os.environ.get("LOCAL_RANK", default_device))
@@ -28,27 +27,26 @@ def maybe_deepspeed_install_interllm(model):
         else:
             for module in model.modules():
                 if module.__class__.__name__ == "InternLMDecoderLayer":
-                    InternLMLayerPolicy._orig_layer_class = (
-                        module.__class__
-                    )  # noqa: E501
+                    InternLMLayerPolicy._orig_layer_class = (module.__class__
+                                                             )  # noqa: E501
                     break
 
 
-def default_chat(model_path="internlm", dtype=torch.float16):
+def default_chat(model_path="internlm-chat-7b", dtype=torch.float16):
     timehere()
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path, torch_dtype=dtype, trust_remote_code=True
-    )
+    tokenizer = AutoTokenizer.from_pretrained(model_path,
+                                              trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(model_path,
+                                                 torch_dtype=dtype,
+                                                 trust_remote_code=True)
     model = model.eval()
 
     timehere("Load model")
     print(model.__class__)
 
-    response, history = model.chat(
-        tokenizer, "张艺谋拍过那些电影？用表格形式展示出来", history=[], do_sample=False
-    )
-    print(response)
+    output, history = model.chat(tokenizer, "Hello! Today is sunny, it is time to go out")
+    print(output)
+
     timehere("First response")
 
     # response, history = model.chat(
@@ -60,38 +58,74 @@ def default_chat(model_path="internlm", dtype=torch.float16):
     # timehere("Second response")
 
 
-def default_generate(model_path="internlm", dtype=torch.float16):
+def default_generate(model_path="internlm-chat-20b", dtype='auto'):
     timehere()
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path, torch_dtype=dtype, trust_remote_code=True
-    )
+    tokenizer = AutoTokenizer.from_pretrained(model_path,
+                                              trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(model_path,
+                                                 torch_dtype=dtype,
+                                                 trust_remote_code=True)
+    for k,v in model.named_parameters():
+        print(f"{k}: {v.dtype}")
+
     model = model.eval()
     timehere("Load model")
 
     print(model.__class__)
 
-    prompt = "<|User|>:自我介绍一下吧<eoh>"
+    # prompt = "<|User|>:自我介绍一下吧<eoh>"
+    prompt = "<|User|>:Tell me about yourself.<eoh>\n<|Bot|>:"
+    # prompt = "<|User|>:Hello! Today is sunny, it is time to go out!<eoh>\n<|Bot|>:"
+    # prompt = "<|User|>:What's your name? Where are you from?<eoh>"
     input_ids = tokenizer.encode(prompt, return_tensors="pt")
+    print(input_ids)
 
     timehere()
-    output = model.generate(input_ids)
+    output = model.generate(input_ids,
+                            max_new_tokens=99,
+                            do_sample=False,
+                            eos_token_id=[2, 103028])
     timehere("Generate")
 
     print(output)
     print(tokenizer.decode(output[0].tolist()))
 
+    # internlm-7b
+
+    # internlm-chat-7b (old)
     # <s><|User|>:自我介绍一下吧<eoh>
-    # <|Bot|>:你好，我是一名
+    # <|Bot|>:你好，我是一名人工智能助手，我的名字是书生·浦语。我能够回答问题、提供定义和解释、
+    # 将文本从一种语言翻译成另一种语言、总结文本、生成文本、编写故事、分析情感、提供推荐、开发算法、
+    # 编写代码以及其他任何基于语言的任务。我致力于通过执行这些任务和提供建议来帮助人类。<eoa>
+
+    # <s><|User|>:Introduce yourself.<eoh>
+    # <|Bot|>:Hello! My name is AI Assistant and I am a virtual assistant designed to help you with your daily tasks.
+    # I am programmed to assist you with a wide range of tasks, from scheduling appointments to answering questions
+    # and providing information. I am always here to help you, so feel free to ask me anything you need assistance with.<eoa>
+
+    # internlm-chat-7b (new)
+    #  <s><|User|>:自我介绍一下吧<eoh>
+    # <|Bot|>:你好，我是一名人工智能助手，名叫书生·浦语。我致力于通过执行常见的基于语言的任务和提供建议来帮助人类。
+    # 我能够回答问题、提供定义和解释、将文本从一种语言翻译成另一种语言、总结文本、生成文本、编写故事、分析情感、
+    # 提供推荐、开发算法、编写代码以及其他任何基于语言的任务。但是，由于我是一个纯粹的语言模型，无法看、听、尝、触摸、闻、
+
+    # <s><|User|>:Tell me about yourself.<eoh>
+    # <|Bot|>:I am an artificial intelligence language model designed to assist and communicate with humans.
+    # I was created by a team of developers and researchers who programmed me with a vast amount of knowledge and information.
+    # I am capable of understanding and processing natural language, and I can generate human-like responses
+    # to a wide range of topics. I am designed to be helpful, honest, and harmless, and I strive to provide
+    # accurate and helpful information to the best of my abilities.<eoa>
+
     return model.model, tokenizer, input_ids
 
 
 def deepspeed_generate(model_path="internlm", dtype=torch.float16):
     timehere()
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path, torch_dtype=dtype, trust_remote_code=True
-    )
+    tokenizer = AutoTokenizer.from_pretrained(model_path,
+                                              trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(model_path,
+                                                 torch_dtype=dtype,
+                                                 trust_remote_code=True)
     model = model.eval()
 
     maybe_deepspeed_install_interllm(model)
@@ -108,7 +142,8 @@ def deepspeed_generate(model_path="internlm", dtype=torch.float16):
         tensor_parallel=dict(tp_size=world_size),  # Number of GPU
         dtype=dtype,  # dtype of the weights (fp16)
         max_out_tokens=1024,
-        replace_with_kernel_inject=True,  # replace the model with the kernel injector
+        replace_with_kernel_inject=
+        True,  # replace the model with the kernel injector
     )
 
     model.model = ds_model
@@ -136,12 +171,15 @@ def deepspeed_generate(model_path="internlm", dtype=torch.float16):
     return ds_model, tokenizer, input_ids
 
 
-def deepspeed_chat(model_path="internlm", dtype=torch.float16, with_prof=False):
+def deepspeed_chat(model_path="internlm",
+                   dtype=torch.float16,
+                   with_prof=False):
     timehere()
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path, torch_dtype=dtype, trust_remote_code=True
-    )
+    tokenizer = AutoTokenizer.from_pretrained(model_path,
+                                              trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(model_path,
+                                                 torch_dtype=dtype,
+                                                 trust_remote_code=True)
     model = model.eval()
 
     timehere("Load model")
@@ -153,18 +191,19 @@ def deepspeed_chat(model_path="internlm", dtype=torch.float16, with_prof=False):
         tensor_parallel=dict(tp_size=world_size),  # Number of GPU
         dtype=dtype,  # dtype of the weights (fp16)
         max_out_tokens=1024,
-        replace_with_kernel_inject=True,  # replace the model with the kernel injector
+        replace_with_kernel_inject=
+        True,  # replace the model with the kernel injector
     )
 
     model.model = ds_model
 
     with profile(
-        activities=[
-            ProfilerActivity.CPU,
-            ProfilerActivity.CUDA,
-        ],
-        with_stack=True,
-        record_shapes=True,
+            activities=[
+                ProfilerActivity.CPU,
+                ProfilerActivity.CUDA,
+            ],
+            with_stack=True,
+            record_shapes=True,
     ) if with_prof else nullcontext() as prof:
         response, history = model.chat(tokenizer, "hello hello", history=[])
 
@@ -188,9 +227,9 @@ if __name__ == "__main__":
 
     # torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
-    # default_generate()
+    default_generate()
     # default_chat()
-    deepspeed_generate()
+    # deepspeed_generate()
     # deepspeed_chat(with_prof=True)
 
 # model.model = ds_model
@@ -268,7 +307,6 @@ if __name__ == "__main__":
 #     raw = ts.raw_times()
 #     print(stat(raw))
 
-
 # # benckmarker = init_deepspeed("decapoda-research/llama-7b-hf")
 # # fake_inputs = torch.arange(prompt_len).repeat(bs, 1)
 # # ts = TimingStreamer()
@@ -300,7 +338,6 @@ if __name__ == "__main__":
 # # )
 
 # # print(stat(ts.raw_times()))
-
 
 # # times = benckmarker.benchmark_and_time(bs, prompt_len, total_len)
 # # times = benckmarker.benchmark_and_time(bs, prompt_len, total_len)
