@@ -27,45 +27,74 @@ def maybe_deepspeed_install_interllm(model):
         else:
             for module in model.modules():
                 if module.__class__.__name__ == "InternLMDecoderLayer":
-                    InternLMLayerPolicy._orig_layer_class = (module.__class__
-                                                             )  # noqa: E501
+                    InternLMLayerPolicy._orig_layer_class = (
+                        module.__class__
+                    )  # noqa: E501
                     break
 
 
-def default_chat(model_path="internlm-chat-7b", dtype=torch.float16):
+def vllm_chat(model_path="internlm-chat-20b", dtype=torch.bfloat16):
+    from vllm import LLM, SamplingParams
+
+    def build_inputs(query: str, history=[]):
+        prompt = ""
+        for record in history:
+            prompt += f"""<|User|>:{record[0]}<eoh>\n<|Bot|>:{record[1]}<eoa>\n"""
+        prompt += f"""<|User|>:{query}<eoh>\n<|Bot|>:"""
+        return prompt
+
     timehere()
-    tokenizer = AutoTokenizer.from_pretrained(model_path,
-                                              trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(model_path,
-                                                 torch_dtype=dtype,
-                                                 trust_remote_code=True)
-    model = model.eval()
+    model = LLM(model_path, dtype=dtype, trust_remote_code=True)
 
-    timehere("Load model")
-    print(model.__class__)
-
-    output, history = model.chat(tokenizer, "Hello! Today is sunny, it is time to go out")
-    print(output)
+    prompt = build_inputs("Hello! Today is sunny, it is time to go out")
+    timehere("load model")
+    outputs = model.generate([prompt], SamplingParams(temperature=0.0, max_tokens=512, stop_token_ids=[2, 103028]))
+    print(outputs)
 
     timehere("First response")
 
+    outputs = model.generate([prompt], SamplingParams(temperature=0.0, max_tokens=512, stop_token_ids=[2, 103028]))
     # response, history = model.chat(
     #     tokenizer,
     #     "please provide three suggestions about time management",
     #     history=history,
     # )
-    # print(response)
-    # timehere("Second response")
+    print(outputs)
+    timehere("Second response")
 
 
-def default_generate(model_path="internlm-chat-20b", dtype='auto'):
+def default_chat(model_path="internlm-chat-20b", dtype=torch.bfloat16):
     timehere()
-    tokenizer = AutoTokenizer.from_pretrained(model_path,
-                                              trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(model_path,
-                                                 torch_dtype=dtype,
-                                                 trust_remote_code=True)
-    for k,v in model.named_parameters():
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, torch_dtype=dtype, trust_remote_code=True
+    )
+    model = model.eval()
+
+    timehere("Load model")
+    print(model.__class__)
+
+    output, history = model.chat(
+        tokenizer, "Hello! Today is sunny, it is time to go out", do_sample=False
+    )
+    print(output)
+
+    timehere("First response")
+
+    response, history = model.chat(
+        tokenizer, "Hello! Today is sunny, it is time to go out", do_sample=False
+    )
+    print(response)
+    timehere("Second response")
+
+
+def default_generate(model_path="internlm-chat-20b", dtype="auto"):
+    timehere()
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, torch_dtype=dtype, trust_remote_code=True
+    )
+    for k, v in model.named_parameters():
         print(f"{k}: {v.dtype}")
 
     model = model.eval()
@@ -81,10 +110,9 @@ def default_generate(model_path="internlm-chat-20b", dtype='auto'):
     print(input_ids)
 
     timehere()
-    output = model.generate(input_ids,
-                            max_new_tokens=99,
-                            do_sample=False,
-                            eos_token_id=[2, 103028])
+    output = model.generate(
+        input_ids, max_new_tokens=99, do_sample=False, eos_token_id=[2, 103028]
+    )
     timehere("Generate")
 
     print(output)
@@ -121,11 +149,10 @@ def default_generate(model_path="internlm-chat-20b", dtype='auto'):
 
 def deepspeed_generate(model_path="internlm", dtype=torch.float16):
     timehere()
-    tokenizer = AutoTokenizer.from_pretrained(model_path,
-                                              trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(model_path,
-                                                 torch_dtype=dtype,
-                                                 trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, torch_dtype=dtype, trust_remote_code=True
+    )
     model = model.eval()
 
     maybe_deepspeed_install_interllm(model)
@@ -142,8 +169,7 @@ def deepspeed_generate(model_path="internlm", dtype=torch.float16):
         tensor_parallel=dict(tp_size=world_size),  # Number of GPU
         dtype=dtype,  # dtype of the weights (fp16)
         max_out_tokens=1024,
-        replace_with_kernel_inject=
-        True,  # replace the model with the kernel injector
+        replace_with_kernel_inject=True,  # replace the model with the kernel injector
     )
 
     model.model = ds_model
@@ -171,15 +197,12 @@ def deepspeed_generate(model_path="internlm", dtype=torch.float16):
     return ds_model, tokenizer, input_ids
 
 
-def deepspeed_chat(model_path="internlm",
-                   dtype=torch.float16,
-                   with_prof=False):
+def deepspeed_chat(model_path="internlm", dtype=torch.float16, with_prof=False):
     timehere()
-    tokenizer = AutoTokenizer.from_pretrained(model_path,
-                                              trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(model_path,
-                                                 torch_dtype=dtype,
-                                                 trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, torch_dtype=dtype, trust_remote_code=True
+    )
     model = model.eval()
 
     timehere("Load model")
@@ -191,19 +214,18 @@ def deepspeed_chat(model_path="internlm",
         tensor_parallel=dict(tp_size=world_size),  # Number of GPU
         dtype=dtype,  # dtype of the weights (fp16)
         max_out_tokens=1024,
-        replace_with_kernel_inject=
-        True,  # replace the model with the kernel injector
+        replace_with_kernel_inject=True,  # replace the model with the kernel injector
     )
 
     model.model = ds_model
 
     with profile(
-            activities=[
-                ProfilerActivity.CPU,
-                ProfilerActivity.CUDA,
-            ],
-            with_stack=True,
-            record_shapes=True,
+        activities=[
+            ProfilerActivity.CPU,
+            ProfilerActivity.CUDA,
+        ],
+        with_stack=True,
+        record_shapes=True,
     ) if with_prof else nullcontext() as prof:
         response, history = model.chat(tokenizer, "hello hello", history=[])
 
@@ -223,12 +245,14 @@ def deepspeed_chat(model_path="internlm",
 
 
 if __name__ == "__main__":
+    vllm_chat()
+
     torch.set_default_device(local_rank)
 
     # torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
-    default_generate()
-    # default_chat()
+    # default_generate()
+    default_chat()
     # deepspeed_generate()
     # deepspeed_chat(with_prof=True)
 

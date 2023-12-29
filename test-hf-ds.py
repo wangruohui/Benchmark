@@ -14,7 +14,7 @@ def init_model():
     # model_id = "/nvme/wangruohui/llama-65b-hf"
     # model_id = "/nvme/wangruohui/llama-7b-hf"
     # model_id = "/share_140/InternLM/7B/0703/hf"
-    model_id = "llama2/huggingface/llama-2-7b"
+    model_id = "llama-2-7b-chat"
     model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     t("load model")
